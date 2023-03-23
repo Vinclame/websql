@@ -33,17 +33,7 @@ spec:
         - name: timezonehost
           mountPath: /etc/localtime
           readOnly: true
-        - name: dbspace
-          mountPath: /var/lib/mysql
-        - name: configuration
-          mountPath: /etc/mysql/mysql.conf.d
       volumes:
       - name: timezonehost
         hostPath:
           path: /etc/localtime
-      - name: dbspace
-        persistentVolumeClaim:
-          claimName: mysql-pvc
-      - name: configuration
-        configMap:
-          name: mysql-config
