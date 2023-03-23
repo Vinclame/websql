@@ -1,0 +1,201 @@
+#!/bin/bash
+
+source ./initialize
+
+cd ~/WebSQL
+
+if ! kubectl apply -f mysql-secret.yaml
+then
+        echo Exercise $EXERCISE failed! >&2
+        exit 101
+fi
+
+if ! kubectl apply -f webserver-secret.yaml
+then
+        echo Exercise $EXERCISE failed! >&2
+        exit 101
+fi
+
+if ! kubectl apply -f mysql-configmap.yaml
+then
+        echo Exercise $EXERCISE failed! >&2
+        exit 101
+fi
+
+
+cat << EOF  > mysql-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysqlserver
+  labels:
+    app: websql
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3306
+    protocol: TCP
+  selector:
+    pod: websql-sql
+EOF
+
+if ! kubectl apply -f mysql-svc.yaml
+then
+	echo Exercise $EXERCISE failed! >&2
+	exit 101
+fi
+
+cat << EOF  > webserver-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: webrockserver
+  labels:
+    app: websql
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    nodePort: 32123
+    protocol: TCP
+  selector:
+    pod: websql-web
+EOF
+
+if ! kubectl apply -f webserver-svc.yaml
+then
+	echo Exercise $EXERCISE failed! >&2
+	exit 101
+fi
+
+kubectl get svc
+kubectl get ep
+
+cat << EOF  > mysql-deploy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  labels:
+    app: websql
+  annotations:
+    maintainer: "Guru the Great"
+    state: "In progress"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: websql
+  template:
+    metadata:
+      labels:
+        app: websql
+        pod: websql-sql
+    spec:
+      containers:
+      - name: sqlcont
+        image: mysql:5.7
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysqlpw
+              key: password
+        volumeMounts:
+        - name: timezonehost
+          mountPath: /etc/localtime
+          readOnly: true
+        - name: dbspace
+          mountPath: /var/lib/mysql
+        - name: configuration
+          mountPath: /etc/mysql/mysql.conf.d
+      volumes:
+      - name: timezonehost
+        hostPath:
+          path: /etc/localtime
+      - name: dbspace
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+      - name: configuration
+        configMap:
+          name: mysql-config
+EOF
+
+if ! kubectl apply -f mysql-deploy.yaml
+then
+	echo Exercise $EXERCISE failed! >&2
+	exit 101
+fi
+
+
+cat << EOF  > webserver-deploy.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webrock
+  labels:
+    app: websql
+  annotations:
+    maintainer: "Guru the Great"
+    state: "In progress"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: websql
+  template:
+    metadata:
+      labels:
+        app: websql
+        pod: websql-web
+    spec:
+      containers:
+      - name: webcont
+        image: atcomp/apacherock
+        ports:
+        - containerPort: 80
+        env:
+        - name: DBSERVER
+          value: mysqlserver
+        - name: DBNAME
+          value: rockdisc
+        - name: DBUSER
+          value: guru00
+        - name: DBPASS
+          valueFrom:
+            secretKeyRef:
+              name: gurupw
+              key: password
+        volumeMounts:
+        - name: timezonehost
+          mountPath: /etc/localtime
+          readOnly: true
+      volumes:
+      - name: timezonehost
+        hostPath:
+          path: /etc/localtime
+EOF
+
+if ! kubectl apply -f webserver-deploy.yaml
+then
+	echo Exercise $EXERCISE failed! >&2
+	exit 101
+fi
+
+sleep 60
+
+if ! curl work1:32123
+then
+	echo Exercise $EXERCISE failed! >&2
+	exit 101
+fi
+
+kubectl get svc
+kubectl get ep
+
+kubectl delete deploy mysql webrock
+kubectl delete secret gurupw mysqlpw
+kubectl delete cm     mysql-config
+kubectl delete svc    mysqlserver webrockserver
