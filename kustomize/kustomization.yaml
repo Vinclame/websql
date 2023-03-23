@@ -7,3 +7,4 @@ resources:
   - mysqlserv.yaml
   - mysqldeploy.yaml
   - webdeploy.yaml
+  - test.yml
